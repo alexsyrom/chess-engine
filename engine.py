@@ -21,6 +21,7 @@ class Analyzer(threading.Thread):
         self.termination = threading.Event()
         self.termination.clear()
 
+        self.board = chess.Board()
         self._bestmove = chess.Move.null()
 
     @property
@@ -78,7 +79,19 @@ class EngineShell(cmd.Cmd):
         pass
 
     def do_position(self, arg):
-        pass
+        arg = arg.split()
+        if not arg:
+            return
+        if arg[0] == 'fen':
+            self.analyzer.board.set_fen(' '.join(arg[1:]))
+            arg.pop(0)
+        else:
+            if arg[0] == 'startpos':
+                arg.pop(0)
+            self.analyzer.board.reset()
+        if arg[0] == 'moves':
+            for move in arg[1:]:
+                self.analyzer.board.push_uci(move)
 
     def do_go(self, arg):
         pass
