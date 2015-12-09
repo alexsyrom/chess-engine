@@ -82,6 +82,13 @@ class EngineShell(cmd.Cmd):
         arg = arg.split()
         if not arg:
             return
+        if self.analyzer.is_working.is_set():
+            '''
+                something strange
+                according to the protocol I should ignore it
+                *if I ignore it, maybe it will go away*
+            '''
+            return
         if arg[0] == 'fen':
             self.analyzer.board.set_fen(' '.join(arg[1:]))
             arg.pop(0)
