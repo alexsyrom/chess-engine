@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+import sys
 import threading
 import cmd
 import chess
@@ -17,6 +18,8 @@ class Analyzer(threading.Thread):
         self.is_conscious = threading.Condition()
         self.is_bestmove_ready = threading.Event()
         self.is_bestmove_ready.clear()
+        self.termination = threading.Event()
+        self.termination.clear()
 
         self._bestmove = chess.Move.null()
 
@@ -25,7 +28,9 @@ class Analyzer(threading.Thread):
         return self._bestmove.uci()
 
     def run(self):
-        pass
+        while self.is_working.wait():
+            if self.termination.is_set():
+                sys.exit()
 
 
 class EngineShell(cmd.Cmd):
@@ -39,6 +44,7 @@ class EngineShell(cmd.Cmd):
 
     def postinit(self):
         self.analyzer = Analyzer()
+        self.analyzer.start()
         self.postinitialized = True
 
     def do_uci(self, arg):
@@ -85,7 +91,10 @@ class EngineShell(cmd.Cmd):
         print(self.analyzer.bestmove)
 
     def do_quit(self, arg):
-        pass
+        self.analyzer.termination.set()
+        self.analyzer.is_working.set()
+        self.analyzer.join()
+        sys.exit()
 
     def default(self, arg):
         pass
