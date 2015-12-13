@@ -10,28 +10,41 @@ AUTHOR_NAME = 'Alexey Syromyatnikov'
 
 
 class Analyzer(threading.Thread):
-    def __init__(self):
+
+    def set_default_values(self):
+        self.infinite = False
+        self.possible_first_moves = set()
+        self.depth = 5
+        self.number_of_nodes = 1000
+
+    def __init__(self, call_if_ready):
         super(Analyzer, self).__init__()
         self.debug = False
+        self.set_default_values()
+        self.board = chess.Board()
+
         self.is_working = threading.Event()
         self.is_working.clear()
         self.is_conscious = threading.Condition()
-        self.is_bestmove_ready = threading.Event()
-        self.is_bestmove_ready.clear()
         self.termination = threading.Event()
         self.termination.clear()
 
-        self.board = chess.Board()
+        self._call_if_ready = call_if_ready
         self._bestmove = chess.Move.null()
 
     @property
     def bestmove(self):
-        return self._bestmove.uci()
+        return self._bestmove
 
     def run(self):
         while self.is_working.wait():
             if self.termination.is_set():
                 sys.exit()
+
+            self.is_working.clear()
+            if not self.infinite:
+                self._call_if_ready()
+            self.set_default_values()
 
 
 class EngineShell(cmd.Cmd):
@@ -39,12 +52,14 @@ class EngineShell(cmd.Cmd):
     prompt = ''
     file = None
 
+    go_parameter_list = ['infinite', 'searchmoves', 'depth', 'nodes']
+
     def __init__(self):
         super(EngineShell, self).__init__()
         self.postinitialized = False
 
     def postinit(self):
-        self.analyzer = Analyzer()
+        self.analyzer = Analyzer(self.output_bestmove)
         self.analyzer.start()
         self.postinitialized = True
 
@@ -101,20 +116,68 @@ class EngineShell(cmd.Cmd):
                 self.analyzer.board.push_uci(move)
 
     def do_go(self, arg):
-        pass
+        arg = arg.split()
+        for parameter in self.go_parameter_list:
+            try:
+                index = arg.index(parameter)
+            except:
+                pass
+            else:
+                getattr(self, 'go_' + arg[index])(arg[index + 1:])
+        try:
+            index = arg.index('movetime')
+            time = float(arg[index + 1])
+        except:
+            pass
+        else:
+            self.stop_timer = threading.Timer(time, self.do_stop)
+        self.analyzer.is_working.set()
 
-    def do_stop(self, arg):
+    def do_stop(self, arg=None):
+        if hasattr(self, 'stop_timer'):
+            self.stop_timer.cancel()
         if self.analyzer.is_working.is_set():
             self.analyzer.is_working.clear()
-            with self.analyzer.is_bestmove_ready:
-                self.analyzer.is_bestmove_ready.wait()
-        print(self.analyzer.bestmove)
+        else:
+            self.output_bestmove()
 
     def do_quit(self, arg):
         self.analyzer.termination.set()
         self.analyzer.is_working.set()
         self.analyzer.join()
         sys.exit()
+
+    def output_bestmove(self):
+        print('bestmove', self.analyzer.bestmove.uci())
+
+    def go_infinite(self, arg):
+        self.analyzer.infinite = True
+
+    def go_searchmoves(self, arg):
+        self.analyzer.possible_first_moves = set()
+        for uci_move in arg:
+            try:
+                move = chess.Move.from_uci(uci_move)
+            except:
+                break
+            else:
+                self.analyzer.possible_first_moves.add(move)
+
+    def go_depth(self, arg):
+        try:
+            depth = int(arg[0])
+        except:
+            pass
+        else:
+            self.analyzer.depth = depth
+
+    def go_nodes(self, arg):
+        try:
+            number_of_nodes = int(arg[0])
+        except:
+            pass
+        else:
+            self.analyzer.depth = number_of_nodes
 
     def default(self, arg):
         pass
