@@ -58,7 +58,8 @@ class Analyzer(threading.Thread):
     def get_number_of_pieces(self):
         number = 0
         for square in chess.SQUARES:
-            number += self.board.piece_at(square)
+            if self.board.piece_at(square):
+                number += 1
         return number
 
     @Communicant()
@@ -73,7 +74,7 @@ class Analyzer(threading.Thread):
 
     @Communicant()
     def evaluate(self):
-        values = [0 for i in range(tables.PHASES)]
+        values = [0 for i in tables.PHASES]
         for phase in tables.PHASES:
             for color in map(int, chess.COLORS):
                 values[phase] += (self.evaluate_material(phase, color) *
@@ -90,7 +91,7 @@ class Analyzer(threading.Thread):
         if current_depth == self.depth or not self.is_working.is_set():
             return self.evaluate()
         best_value = alpha
-        moves = self.board.legal_moves.copy()
+        moves = self.board.legal_moves
         for move in moves:
             self.board.push(move)
             value = -self.alpha_beta(current_depth+1, -beta, -best_value)
