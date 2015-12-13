@@ -17,7 +17,7 @@ class Analyzer(threading.Thread):
         self.depth = 5
         self.number_of_nodes = 1000
 
-    def __init__(self, call_if_ready):
+    def __init__(self, call_if_ready, call_to_inform):
         super(Analyzer, self).__init__()
         self.debug = False
         self.set_default_values()
@@ -30,6 +30,7 @@ class Analyzer(threading.Thread):
         self.termination.clear()
 
         self._call_if_ready = call_if_ready
+        self._call_to_inform = call_to_inform
         self._bestmove = chess.Move.null()
 
     @property
@@ -59,7 +60,7 @@ class EngineShell(cmd.Cmd):
         self.postinitialized = False
 
     def postinit(self):
-        self.analyzer = Analyzer(self.output_bestmove)
+        self.analyzer = Analyzer(self.output_bestmove, self.output_info)
         self.analyzer.start()
         self.postinitialized = True
 
@@ -149,6 +150,9 @@ class EngineShell(cmd.Cmd):
 
     def output_bestmove(self):
         print('bestmove', self.analyzer.bestmove.uci())
+
+    def output_info(self, info_string):
+        print('info string', info_string)
 
     def go_infinite(self, arg):
         self.analyzer.infinite = True
