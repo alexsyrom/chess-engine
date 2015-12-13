@@ -10,6 +10,8 @@ AUTHOR_NAME = 'Alexey Syromyatnikov'
 
 
 class Analyzer(threading.Thread):
+    ALPHA = -1000 * 1000 * 1000
+    BETA = 1000 * 1000 * 1000
 
     def set_default_values(self):
         self.infinite = False
@@ -37,11 +39,36 @@ class Analyzer(threading.Thread):
     def bestmove(self):
         return self._bestmove
 
+    class Communicant():
+        def __call__(self, func):
+            def wrap(instance, *args, **kwargs):
+                if instance.termination.is_set():
+                    sys.exit()
+                with instance.is_conscious:
+                    instance.is_conscious.notify()
+                result = func(instance, *args, **kwargs)
+                with instance.is_conscious:
+                    instance.is_conscious.notify()
+                if instance.termination.is_set():
+                    sys.exit()
+                return result
+            return wrap
+
+    @Communicant()
+    def evaluate(self):
+        pass
+
+    @Communicant()
+    def alpha_beta(self, current_depth, alpha, beta):
+        self._call_to_inform('wow')
+        if current_depth == self.depth:
+            return self.evaluate()
+
     def run(self):
         while self.is_working.wait():
             if self.termination.is_set():
                 sys.exit()
-
+            self.alpha_beta(current_depth=0, alpha=self.ALPHA, beta=self.BETA)
             self.is_working.clear()
             if not self.infinite:
                 self._call_if_ready()
