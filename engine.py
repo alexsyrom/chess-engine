@@ -17,7 +17,7 @@ class Analyzer(threading.Thread):
     def set_default_values(self):
         self.infinite = False
         self.possible_first_moves = set()
-        self.depth = 1
+        self.depth = 3
         self.number_of_nodes = 1000
 
     def __init__(self, call_if_ready, call_to_inform):
@@ -91,7 +91,8 @@ class Analyzer(threading.Thread):
         if current_depth == self.depth or not self.is_working.is_set():
             return self.evaluate()
         best_value = alpha
-        moves = self.board.legal_moves
+        moves = [move for move in self.board.legal_moves]
+        moves = moves[:self.number_of_nodes]
         for move in moves:
             self.board.push(move)
             value = -self.alpha_beta(current_depth+1, -beta, -best_value)
@@ -210,9 +211,10 @@ class EngineShell(cmd.Cmd):
             self.output_bestmove()
 
     def do_quit(self, arg):
-        self.analyzer.termination.set()
-        self.analyzer.is_working.set()
-        self.analyzer.join()
+        if hasattr(self, 'analyzer'):
+            self.analyzer.termination.set()
+            self.analyzer.is_working.set()
+            self.analyzer.join()
         sys.exit()
 
     def output_bestmove(self):
