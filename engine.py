@@ -4,6 +4,7 @@ import sys
 import threading
 import cmd
 import chess
+import tables
 
 ENGINE_NAME = 'simple UCI chess engine'
 AUTHOR_NAME = 'Alexey Syromyatnikov'
@@ -16,7 +17,7 @@ class Analyzer(threading.Thread):
     def set_default_values(self):
         self.infinite = False
         self.possible_first_moves = set()
-        self.depth = 5
+        self.depth = 1
         self.number_of_nodes = 1000
 
     def __init__(self, call_if_ready, call_to_inform):
@@ -54,15 +55,53 @@ class Analyzer(threading.Thread):
                 return result
             return wrap
 
+    def get_number_of_pieces(self):
+        number = 0
+        for square in chess.SQUARES:
+            number += self.board.piece_at(square)
+        return number
+
+    @Communicant()
+    def evaluate_material(self, phase, color):
+        value = 0
+        for piece in chess.PIECE_TYPES:
+            squares = self.board.pieces(piece, color)
+            for square in squares:
+                value += (tables.piece[phase][piece] +
+                          tables.piece_square[phase][color][piece][square])
+        return value
+
     @Communicant()
     def evaluate(self):
-        pass
+        values = [0 for i in range(tables.PHASES)]
+        for phase in tables.PHASES:
+            for color in map(int, chess.COLORS):
+                values[phase] += (self.evaluate_material(phase, color) *
+                                  (-1 + 2 * color))
+        number_of_pieces = self.get_number_of_pieces()
+        value = (values[0] * number_of_pieces +
+                 values[1] * (32 - number_of_pieces)) // 32
+        if self.board.turn == chess.BLACK:
+            value *= -1
+        return value
 
     @Communicant()
     def alpha_beta(self, current_depth, alpha, beta):
-        self._call_to_inform('wow')
-        if current_depth == self.depth:
+        if current_depth == self.depth or not self.is_working.is_set():
             return self.evaluate()
+        best_value = alpha
+        moves = self.board.legal_moves.copy()
+        for move in moves:
+            self.board.push(move)
+            value = -self.alpha_beta(current_depth+1, -beta, -best_value)
+            self.board.pop()
+            if value >= beta:
+                return beta
+            if value > best_value:
+                best_value = value
+                if current_depth == 0:
+                    self._bestmove = move
+        return best_value
 
     def run(self):
         while self.is_working.wait():
