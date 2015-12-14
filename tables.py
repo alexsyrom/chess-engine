@@ -1,3 +1,6 @@
+MAX_VALUE = 1000 * 10
+MIN_VALUE = -1000 * 10
+
 OPENING = 0
 ENDING = 1
 PHASES = range(2)

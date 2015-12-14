@@ -3,6 +3,8 @@ import threading
 import cmd
 import chess
 import tables
+from operator import attrgetter
+from collections import deque
 
 ENGINE_NAME = 'simple UCI chess engine'
 AUTHOR_NAME = 'Alexey Syromyatnikov'
@@ -22,21 +24,133 @@ class Unbuffered:
 sys.stdout = Unbuffered(sys.stdout)
 
 
-class Analyzer(threading.Thread):
-    ALPHA = -1000 * 1000 * 1000
-    BETA = 1000 * 1000 * 1000
+class Board(chess.Board):
+    MIN_VALUE = tables.MIN_VALUE
 
-    def set_default_values(self):
+    def _set_default_values(self):
+        self.value_stack = deque((0,))
+        self.number_stack = deque((32,))
+
+    def __init__(self, *arg, **kwarg):
+        super(Board, self).__init__(*arg, **kwarg)
+        self._set_default_values()
+
+    @property
+    def value(self):
+        return self.value_stack[-1]
+
+    @property
+    def number_of_pieces(self):
+        return self.number_stack[-1]
+
+    def _update_forward(self, move):
+        number = self.number_of_pieces
+        value = -self.value
+        color = int(self.turn)
+        phase_old = self.game_phase
+        if self.piece_at(move.to_square):
+            number -= 1
+            value -= (
+                tables.piece
+                [phase_old]
+                [self.piece_type_at(move.to_square)])
+        self.number_stack.append(number)
+        phase_new = self.game_phase
+        piece_type_old = self.piece_type_at(move.from_square)
+        value += (-1 + 2 * color) * (
+            tables.piece_square
+            [phase_old][color]
+            [piece_type_old][move.from_square])
+        if move.promotion:
+            piece_type_new = move.promotion
+            value += (-1 + 2 * color) * (
+                tables.piece[phase_old][piece_type_old])
+            value -= (-1 + 2 * color) * (
+                tables.piece[phase_new][piece_type_new])
+        else:
+            piece_type_new = piece_type_old
+        value -= (-1 + 2 * color) * (
+            tables.piece_square
+            [phase_new][color]
+            [piece_type_new][move.to_square])
+        self.value_stack.append(value)
+
+    def _update_backward(self):
+        self.value_stack.pop()
+        self.number_stack.pop()
+
+    def push(self, move):
+        self._update_forward(move)
+        super(Board, self).push(move)
+
+    def pop(self):
+        self._update_backward()
+        return super(Board, self).pop()
+
+    def reset(self):
+        self._set_default_values()
+        super(Board, self).reset()
+
+    def set_fen(self, fen):
+        super(Board, self).set_fen(fen)
+        self.number_stack = deque((self._count_number_of_pieces(),))
+        self.value_stack = deque((self._evaluate(),))
+
+    def _count_number_of_pieces(self):
+        number = 0
+        for square in chess.SQUARES:
+            if self.piece_at(square):
+                number += 1
+        return number
+
+    def _evaluate_material(self, phase, color):
+        value = 0
+        for piece in chess.PIECE_TYPES:
+            squares = self.pieces(piece, color)
+            for square in squares:
+                value += (tables.piece[phase][piece] +
+                          tables.piece_square[phase][color][piece][square])
+        return value
+
+    def _evaluate(self):
+        if self.is_checkmate():
+            return self.MIN_VALUE
+        if self.is_stalemate():
+            return 0
+        values = [0 for i in tables.PHASES]
+        for phase in tables.PHASES:
+            for color in map(int, chess.COLORS):
+                values[phase] += (self._evaluate_material(phase, color) *
+                                  (-1 + 2 * color))
+        value = (values[0] * self.number_of_pieces +
+                 values[1] * (32 - self.number_of_pieces)) // 32
+        if self.turn == chess.BLACK:
+            value *= -1
+        return value
+
+    @property
+    def game_phase(self):
+        if self.number_of_pieces > 16:
+            return tables.OPENING
+        else:
+            return tables.ENGING
+
+
+class Analyzer(threading.Thread):
+    ALPHA = -tables.piece[tables.OPENING][chess.KNIGHT]
+    BETA = -ALPHA
+
+    def _set_default_values(self):
         self.infinite = False
         self.possible_first_moves = set()
-        self.depth = 3
-        self.number_of_nodes = 100
+        self.depth = 4
+        self.number_of_nodes = 30
 
     def __init__(self, call_if_ready, call_to_inform):
         super(Analyzer, self).__init__()
         self.debug = False
-        self.set_default_values()
-        self.board = chess.Board()
+        self._set_default_values()
+        self.board = Board()
 
         self.is_working = threading.Event()
         self.is_working.clear()
@@ -67,71 +181,70 @@ class Analyzer(threading.Thread):
                 return result
             return wrap
 
-    def get_number_of_pieces(self):
-        number = 0
-        for square in chess.SQUARES:
-            if self.board.piece_at(square):
-                number += 1
-        return number
-
-    @Communicant()
-    def evaluate_material(self, phase, color):
-        value = 0
-        for piece in chess.PIECE_TYPES:
-            squares = self.board.pieces(piece, color)
-            for square in squares:
-                value += (tables.piece[phase][piece] +
-                          tables.piece_square[phase][color][piece][square])
-        return value
-
-    @Communicant()
-    def evaluate(self):
-        if self.board.is_checkmate():
-            return self.ALPHA
-        values = [0 for i in tables.PHASES]
-        for phase in tables.PHASES:
-            for color in map(int, chess.COLORS):
-                values[phase] += (self.evaluate_material(phase, color) *
-                                  (-1 + 2 * color))
-        number_of_pieces = self.get_number_of_pieces()
-        value = (values[0] * number_of_pieces +
-                 values[1] * (32 - number_of_pieces)) // 32
-        if self.board.turn == chess.BLACK:
-            value *= -1
-        return value
-
-    @Communicant()
-    def alpha_beta(self, current_depth, alpha, beta):
-        if current_depth == self.depth or not self.is_working.is_set():
-            return self.evaluate()
-        best_value = alpha
-        if self.debug:
-            self._call_to_inform('depth {}'.format(current_depth))
-            self._call_to_inform('string alpha {} beta {}'.format(alpha, beta))
+    def _generate_moves(self, current_depth):
         if current_depth == 0 and self.possible_first_moves:
             moves = [move for move in self.board.legal_moves
                      if move in self.possible_first_moves]
         else:
             moves = [move for move in self.board.legal_moves]
-        moves = moves[:self.number_of_nodes]
-        if moves and current_depth == 0:
-            self._bestmove = moves[0]
+            # moves = self.board.legal_moves
+
+        for move in moves:
+            self.board.push(move)
+            move.value = -self.board.value
+            self.board.pop()
+        moves.sort(key=attrgetter('value'), reverse=True)
+        # moves = moves[:self.number_of_nodes]
+        return moves
+
+    def _inner_alpha_beta(self, current_depth, alpha, beta, moves):
+        best_value = alpha
+        if self.debug:
+            self._call_to_inform('depth {}'.format(current_depth))
+            self._call_to_inform(
+                'string alpha {} beta {}'.format(alpha, beta))
+
         for move in moves:
             if self.debug:
                 self._call_to_inform('currmove {}'.format(move.uci()))
             self.board.push(move)
-            value = -self.alpha_beta(current_depth+1, -beta, -best_value)
+            value = -self._alpha_beta(current_depth+1, -beta, -best_value)
+            move.value = value
             if self.debug:
-                self._call_to_inform('sting value {}'.format(value))
+                self._call_to_inform('string value {}'.format(value))
             self.board.pop()
+
             if value >= beta:
                 if current_depth == 0:
                     self._bestmove = move
-                return beta
+                return value
             if value > best_value:
                 best_value = value
                 if current_depth == 0:
                     self._bestmove = move
+
+        return best_value
+
+    @Communicant()
+    def _alpha_beta(self, current_depth, alpha, beta):
+        if current_depth == self.depth or not self.is_working.is_set():
+            return self.board.value
+        if self.board.is_checkmate():
+            return alpha
+        if self.board.is_stalemate():
+            return 0
+
+        left_borders = [beta - (beta - alpha) // 2 ** i
+                        for i in range(1, -1, -1)]
+        moves = self._generate_moves(current_depth)
+        if current_depth == 0 and moves:
+            self._bestmove = moves[0]
+        for left in left_borders:
+            best_value = self._inner_alpha_beta(
+                current_depth, left, beta, moves)
+            if best_value > left:
+                break
+            moves.sort(key=attrgetter('value'), reverse=True)
         return best_value
 
     def run(self):
@@ -139,14 +252,21 @@ class Analyzer(threading.Thread):
             if self.termination.is_set():
                 sys.exit()
             self._bestmove = chess.Move.null()
-            value = self.alpha_beta(current_depth=0,
-                                    alpha=self.ALPHA,
-                                    beta=self.BETA)
+            left = self.board.value + self.ALPHA
+            right_borders = [self.board.value +
+                             self.BETA * 2 ** i
+                             for i in range(3)]
+            for right in right_borders:
+                value = self._alpha_beta(current_depth=0,
+                                         alpha=left,
+                                         beta=right)
+                if value < right:
+                    break
             self._call_to_inform('pv score cp {}'.format(value))
             self.is_working.clear()
             if not self.infinite:
                 self._call_if_ready()
-            self.set_default_values()
+            self._set_default_values()
 
 
 class EngineShell(cmd.Cmd):
@@ -272,6 +392,7 @@ class EngineShell(cmd.Cmd):
     def go_depth(self, arg):
         try:
             depth = int(arg[0])
+            depth = min(depth, 4)
         except:
             pass
         else:
