@@ -239,10 +239,12 @@ class EngineShell(cmd.Cmd):
         sys.exit()
 
     def output_bestmove(self):
-        print('bestmove', self.analyzer.bestmove.uci(), flush=True)
+        print('bestmove', self.analyzer.bestmove.uci(),
+              file=self.stdout, flush=True)
 
     def output_info(self, info_string):
-        print('info', info_string, flush=True)
+        print('info', info_string,
+              file=self.stdout, flush=True)
 
     def go_infinite(self, arg):
         self.analyzer.infinite = True
