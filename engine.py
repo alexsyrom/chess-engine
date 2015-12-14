@@ -29,8 +29,8 @@ class Analyzer(threading.Thread):
     def set_default_values(self):
         self.infinite = False
         self.possible_first_moves = set()
-        self.depth = 3
-        self.number_of_nodes = 1000
+        self.depth = 4
+        self.number_of_nodes = 1000 * 1000
 
     def __init__(self, call_if_ready, call_to_inform):
         super(Analyzer, self).__init__()
@@ -103,13 +103,28 @@ class Analyzer(threading.Thread):
         if current_depth == self.depth or not self.is_working.is_set():
             return self.evaluate()
         best_value = alpha
-        moves = [move for move in self.board.legal_moves]
+        if self.debug:
+            self._call_to_inform('depth {}'.format(current_depth))
+            self._call_to_inform('string alpha {} beta {}'.format(alpha, beta))
+        if current_depth == 0 and self.possible_first_moves:
+            moves = [move for move in self.board.legal_moves
+                     if move in self.possible_first_moves]
+        else:
+            moves = [move for move in self.board.legal_moves]
         moves = moves[:self.number_of_nodes]
+        if moves and current_depth == 0:
+            self._bestmove = moves[0]
         for move in moves:
+            if self.debug:
+                self._call_to_inform('currmove {}'.format(move.uci()))
             self.board.push(move)
             value = -self.alpha_beta(current_depth+1, -beta, -best_value)
+            if self.debug:
+                self._call_to_inform('sting value {}'.format(value))
             self.board.pop()
             if value >= beta:
+                if current_depth == 0:
+                    self._bestmove = move
                 return beta
             if value > best_value:
                 best_value = value
@@ -121,7 +136,11 @@ class Analyzer(threading.Thread):
         while self.is_working.wait():
             if self.termination.is_set():
                 sys.exit()
-            self.alpha_beta(current_depth=0, alpha=self.ALPHA, beta=self.BETA)
+            self._bestmove = chess.Move.null()
+            value = self.alpha_beta(current_depth=0,
+                                    alpha=self.ALPHA,
+                                    beta=self.BETA)
+            self._call_to_inform('pv score cp {}'.format(value))
             self.is_working.clear()
             if not self.infinite:
                 self._call_if_ready()
@@ -185,9 +204,9 @@ class EngineShell(cmd.Cmd):
                 *if I ignore it, maybe it will go away*
             '''
             return
-        if arg[0] == 'fen':
-            self.analyzer.board.set_fen(' '.join(arg[1:]))
-            arg.pop(0)
+        if arg[0] == 'fen' and len(arg) >= 7:
+            self.analyzer.board.set_fen(' '.join(arg[1:7]))
+            del arg[:7]
         else:
             if arg[0] == 'startpos':
                 arg.pop(0)
@@ -233,7 +252,7 @@ class EngineShell(cmd.Cmd):
         print('bestmove', self.analyzer.bestmove.uci())
 
     def output_info(self, info_string):
-        print('info string', info_string)
+        print('info', info_string)
 
     def go_infinite(self, arg):
         self.analyzer.infinite = True
