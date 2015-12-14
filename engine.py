@@ -29,8 +29,8 @@ class Analyzer(threading.Thread):
     def set_default_values(self):
         self.infinite = False
         self.possible_first_moves = set()
-        self.depth = 4
-        self.number_of_nodes = 1000 * 1000
+        self.depth = 3
+        self.number_of_nodes = 100
 
     def __init__(self, call_if_ready, call_to_inform):
         super(Analyzer, self).__init__()
@@ -86,6 +86,8 @@ class Analyzer(threading.Thread):
 
     @Communicant()
     def evaluate(self):
+        if self.board.is_checkmate():
+            return self.ALPHA
         values = [0 for i in tables.PHASES]
         for phase in tables.PHASES:
             for color in map(int, chess.COLORS):
