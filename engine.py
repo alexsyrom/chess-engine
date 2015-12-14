@@ -1,5 +1,3 @@
-# -*- coding: utf-8 -*-
-
 import sys
 import threading
 import cmd
@@ -8,6 +6,20 @@ import tables
 
 ENGINE_NAME = 'simple UCI chess engine'
 AUTHOR_NAME = 'Alexey Syromyatnikov'
+
+
+class Unbuffered:
+    def __init__(self, stream):
+        self.stream = stream
+
+    def write(self, data):
+        self.stream.write(data)
+        self.stream.flush()
+
+    def __getattr__(self, attr):
+        return getattr(self.stream, attr)
+
+sys.stdout = Unbuffered(sys.stdout)
 
 
 class Analyzer(threading.Thread):
@@ -40,7 +52,7 @@ class Analyzer(threading.Thread):
     def bestmove(self):
         return self._bestmove
 
-    class Communicant():
+    class Communicant:
         def __call__(self, func):
             def wrap(instance, *args, **kwargs):
                 if instance.termination.is_set():
@@ -180,7 +192,7 @@ class EngineShell(cmd.Cmd):
             if arg[0] == 'startpos':
                 arg.pop(0)
             self.analyzer.board.reset()
-        if arg[0] == 'moves':
+        if arg and arg[0] == 'moves':
             for move in arg[1:]:
                 self.analyzer.board.push_uci(move)
 
