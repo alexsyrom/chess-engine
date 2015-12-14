@@ -122,7 +122,7 @@ class Analyzer(threading.Thread):
             self.board.push(move)
             value = -self.alpha_beta(current_depth+1, -beta, -best_value)
             if self.debug:
-                self._call_to_inform('sting value {}'.format(value))
+                self._call_to_inform('string value {}'.format(value))
             self.board.pop()
             if value >= beta:
                 if current_depth == 0:
@@ -270,6 +270,8 @@ class EngineShell(cmd.Cmd):
                 self.analyzer.possible_first_moves.add(move)
 
     def go_depth(self, arg):
+        if not self.analyzer.debug:
+            return
         try:
             depth = int(arg[0])
         except:
