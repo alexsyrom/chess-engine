@@ -4,22 +4,10 @@ import cmd
 import chess
 import tables
 
+logfile = open('input.log', 'w')
+
 ENGINE_NAME = 'simple UCI chess engine'
 AUTHOR_NAME = 'Alexey Syromyatnikov'
-
-
-class Unbuffered:
-    def __init__(self, stream):
-        self.stream = stream
-
-    def write(self, data):
-        self.stream.write(data)
-        self.stream.flush()
-
-    def __getattr__(self, attr):
-        return getattr(self.stream, attr)
-
-sys.stdout = Unbuffered(sys.stdout)
 
 
 class Analyzer(threading.Thread):
@@ -251,10 +239,10 @@ class EngineShell(cmd.Cmd):
         sys.exit()
 
     def output_bestmove(self):
-        print('bestmove', self.analyzer.bestmove.uci())
+        print('bestmove', self.analyzer.bestmove.uci(), flush=True)
 
     def output_info(self, info_string):
-        print('info', info_string)
+        print('info', info_string, flush=True)
 
     def go_infinite(self, arg):
         self.analyzer.infinite = True
@@ -290,6 +278,15 @@ class EngineShell(cmd.Cmd):
     def default(self, arg):
         pass
 
+    def precmd(self, line):
+        print(line, file=logfile, flush=True)
+        return line
+
+    def postcmd(self, stop, line):
+        self.stdout.flush()
+        return stop
+
 
 if __name__ == '__main__':
+    print('new start', file=logfile, flush=True)
     EngineShell().cmdloop()
