@@ -11,13 +11,18 @@ AUTHOR_NAME = 'Alexey Syromyatnikov'
 
 
 class Analyzer(threading.Thread):
-    ALPHA = -1000 * 1000 * 1000
-    BETA = 1000 * 1000 * 1000
+    MIN_VALUE = -10 * tables.piece[chess.KING]
+
+    BETA = tables.piece[chess.KNIGHT]
+    ALPHA = -BETA
+
+    MAX_ITER = 3
+    MAX_NEGAMAX_ITER = 2
 
     def set_default_values(self):
         self.infinite = False
         self.possible_first_moves = set()
-        self.depth = 5
+        self.max_depth = 4
         self.number_of_nodes = 100
 
     def __init__(self, call_if_ready, call_to_inform):
@@ -78,7 +83,7 @@ class Analyzer(threading.Thread):
 
     def evaluate(self):
         if self.board.is_checkmate():
-            return self.ALPHA
+            return self.MIN_VALUE
         if self.board.is_stalemate():
             return 0
 
@@ -118,8 +123,8 @@ class Analyzer(threading.Thread):
 
         return value
 
-    def moves(self, current_depth):
-        if current_depth == 0 and self.possible_first_moves:
+    def moves(self, depth):
+        if depth == 0 and self.possible_first_moves:
             for move in self.board.legal_moves:
                 if move in self.possible_first_moves:
                     yield move
@@ -127,46 +132,73 @@ class Analyzer(threading.Thread):
             for move in self.board.legal_moves:
                 yield move
 
-    @Communicant()
-    def alpha_beta(self, current_depth, alpha, beta):
-        if current_depth == self.depth or not self.is_working.is_set():
-            return self.evaluate()
-
-        if self.debug:
-            self._call_to_inform('depth {}'.format(current_depth))
-            self._call_to_inform('string alpha {} beta {}'.format(alpha, beta))
-
+    def inner_negamax(self, depth, alpha, beta):
         best_value = alpha
 
-        for move in self.moves(current_depth):
+        for move in self.moves(depth):
             if self.debug:
                 self._call_to_inform('currmove {}'.format(move.uci()))
+
             self.board.push(move)
-            value = -self.alpha_beta(current_depth+1, -beta, -best_value)
+            value = -self.negamax(depth+1, -beta, -best_value)
+
             if self.debug:
                 self._call_to_inform('string value {}'.format(value))
+
             self.board.pop()
+
             if value >= beta:
-                if current_depth == 0:
+                if depth == 0:
                     self._bestmove = move
-                return beta
+                return value
             elif value > best_value:
                 best_value = value
-                if current_depth == 0:
+                if depth == 0:
                     self._bestmove = move
-            elif current_depth == 0 and not bool(self._bestmove):
+            elif depth == 0 and not bool(self._bestmove):
                 self._bestmove = move
 
         return best_value
+
+    @Communicant()
+    def negamax(self, depth, alpha, beta):
+        if depth == self.max_depth or not self.is_working.is_set():
+            return self.evaluate()
+
+        if self.debug:
+            self._call_to_inform('depth {}'.format(depth))
+            self._call_to_inform('string alpha {} beta {}'.format(alpha, beta))
+
+        value = alpha
+
+        left_borders = [beta - (beta - alpha) // 2 ** i
+                        for i in range(self.MAX_NEGAMAX_ITER, -1, -1)]
+        for left in left_borders:
+            value = self.inner_negamax(depth, left, beta)
+            if value > left:
+                break
+
+        return value
 
     def run(self):
         while self.is_working.wait():
             if self.termination.is_set():
                 sys.exit()
             self._bestmove = chess.Move.null()
-            value = self.alpha_beta(current_depth=0,
-                                    alpha=self.ALPHA,
-                                    beta=self.BETA)
+            middle = self.evaluate()
+            alpha = self.ALPHA
+            beta = self.BETA
+            for i in range(self.MAX_ITER):
+                value = self.negamax(depth=0,
+                                     alpha=middle+alpha,
+                                     beta=middle+beta)
+                if value >= middle + beta:
+                    beta *= 2
+                elif value <= middle + alpha:
+                    alpha *= 2
+                else:
+                    break
+
             self._call_to_inform('pv score cp {}'.format(value))
             self.is_working.clear()
             if not self.infinite:
@@ -304,7 +336,7 @@ class EngineShell(cmd.Cmd):
         except:
             pass
         else:
-            self.analyzer.depth = depth
+            self.analyzer.max_depth = depth
 
     def go_nodes(self, arg):
         try:
