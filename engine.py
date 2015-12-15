@@ -2,9 +2,14 @@ import sys
 import threading
 import cmd
 import chess
+from chess import polyglot
 import tables
+import os
 
-logfile = open('input.log', 'w')
+__location__ = os.path.realpath(
+    os.path.join(os.getcwd(), os.path.dirname(__file__)))
+
+logfile = open(os.path.join(__location__, 'input.log'), 'w')
 
 ENGINE_NAME = 'simple UCI chess engine'
 AUTHOR_NAME = 'Alexey Syromyatnikov'
@@ -13,20 +18,27 @@ AUTHOR_NAME = 'Alexey Syromyatnikov'
 class Analyzer(threading.Thread):
     MIN_VALUE = -10 * tables.piece[chess.KING]
 
-    BETA = tables.piece[chess.KNIGHT]
+    BETA = tables.piece[chess.ROOK]
     ALPHA = -BETA
 
-    MAX_ITER = 3
+    MAX_ITER = 2
+    MULTIPLIER = 4
+
     MAX_NEGAMAX_ITER = 2
+    NEGAMAX_DIVISOR = 3
 
     def set_default_values(self):
         self.infinite = False
         self.possible_first_moves = set()
-        self.max_depth = 4
+        self.max_depth = 3
         self.number_of_nodes = 100
 
-    def __init__(self, call_if_ready, call_to_inform):
+    def __init__(self, call_if_ready, call_to_inform, opening_book):
         super(Analyzer, self).__init__()
+        if opening_book:
+            self.opening_book = polyglot.open_reader(opening_book)
+        else:
+            self.opening_book = None
         self.debug = False
         self.set_default_values()
         self.board = chess.Board()
@@ -150,7 +162,7 @@ class Analyzer(threading.Thread):
             if value >= beta:
                 if depth == 0:
                     self._bestmove = move
-                return value
+                return beta
             elif value > best_value:
                 best_value = value
                 if depth == 0:
@@ -171,7 +183,7 @@ class Analyzer(threading.Thread):
 
         value = alpha
 
-        left_borders = [beta - (beta - alpha) // 2 ** i
+        left_borders = [beta - (beta - alpha) // self.NEGAMAX_DIVISOR ** i
                         for i in range(self.MAX_NEGAMAX_ITER, -1, -1)]
         for left in left_borders:
             value = self.inner_negamax(depth, left, beta)
@@ -185,21 +197,34 @@ class Analyzer(threading.Thread):
             if self.termination.is_set():
                 sys.exit()
             self._bestmove = chess.Move.null()
-            middle = self.evaluate()
-            alpha = self.ALPHA
-            beta = self.BETA
-            for i in range(self.MAX_ITER):
-                value = self.negamax(depth=0,
-                                     alpha=middle+alpha,
-                                     beta=middle+beta)
-                if value >= middle + beta:
-                    beta *= 2
-                elif value <= middle + alpha:
-                    alpha *= 2
-                else:
-                    break
-
-            self._call_to_inform('pv score cp {}'.format(value))
+            try:
+                for entry in self.opening_book.find_all(self.board):
+                    move = entry.move()
+                    if not self.possible_first_moves:
+                        self._bestmove = move
+                        break
+                    elif move in self.possible_first_moves:
+                        self._bestmove = move
+                        break
+            except:
+                pass
+            if not bool(self._bestmove):
+                middle = self.evaluate()
+                alpha = self.ALPHA
+                beta = self.BETA
+                for i in range(self.MAX_ITER):
+                    value = self.negamax(depth=0,
+                                         alpha=middle+alpha,
+                                         beta=middle+beta)
+                    if value >= middle + beta:
+                        beta *= self.MULTIPLIER
+                    elif value <= middle + alpha:
+                        alpha *= self.MULTIPLIER
+                    else:
+                        break
+                self._call_to_inform('pv score cp {}'.format(value))
+            else:
+                self._call_to_inform('string opening')
             self.is_working.clear()
             if not self.infinite:
                 self._call_if_ready()
@@ -211,6 +236,8 @@ class EngineShell(cmd.Cmd):
     prompt = ''
     file = None
 
+    opening_book = "opening/gm2001.bin"
+
     go_parameter_list = ['infinite', 'searchmoves', 'depth', 'nodes']
 
     def __init__(self):
@@ -218,7 +245,10 @@ class EngineShell(cmd.Cmd):
         self.postinitialized = False
 
     def postinit(self):
-        self.analyzer = Analyzer(self.output_bestmove, self.output_info)
+        self.analyzer = Analyzer(
+            self.output_bestmove,
+            self.output_info,
+            os.path.join(__location__, self.opening_book))
         self.analyzer.start()
         self.postinitialized = True
 
