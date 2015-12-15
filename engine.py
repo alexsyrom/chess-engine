@@ -17,7 +17,7 @@ class Analyzer(threading.Thread):
     def set_default_values(self):
         self.infinite = False
         self.possible_first_moves = set()
-        self.depth = 4
+        self.depth = 5
         self.number_of_nodes = 100
 
     def __init__(self, call_if_ready, call_to_inform):
@@ -55,7 +55,8 @@ class Analyzer(threading.Thread):
                 return result
             return wrap
 
-    def get_number_of_pieces(self):
+    @property
+    def number_of_pieces(self):
         number = sum(1 for square in chess.SQUARES
                      if self.board.piece_at(square))
         return number
@@ -117,23 +118,27 @@ class Analyzer(threading.Thread):
 
         return value
 
+    def moves(self, current_depth):
+        if current_depth == 0 and self.possible_first_moves:
+            for move in self.board.legal_moves:
+                if move in self.possible_first_moves:
+                    yield move
+        else:
+            for move in self.board.legal_moves:
+                yield move
+
     @Communicant()
     def alpha_beta(self, current_depth, alpha, beta):
         if current_depth == self.depth or not self.is_working.is_set():
             return self.evaluate()
-        best_value = alpha
+
         if self.debug:
             self._call_to_inform('depth {}'.format(current_depth))
             self._call_to_inform('string alpha {} beta {}'.format(alpha, beta))
-        if current_depth == 0 and self.possible_first_moves:
-            moves = [move for move in self.board.legal_moves
-                     if move in self.possible_first_moves]
-        else:
-            moves = [move for move in self.board.legal_moves]
-        moves = moves[:self.number_of_nodes]
-        if moves and current_depth == 0:
-            self._bestmove = moves[0]
-        for move in moves:
+
+        best_value = alpha
+
+        for move in self.moves(current_depth):
             if self.debug:
                 self._call_to_inform('currmove {}'.format(move.uci()))
             self.board.push(move)
@@ -145,10 +150,13 @@ class Analyzer(threading.Thread):
                 if current_depth == 0:
                     self._bestmove = move
                 return beta
-            if value > best_value:
+            elif value > best_value:
                 best_value = value
                 if current_depth == 0:
                     self._bestmove = move
+            elif current_depth == 0 and not bool(self._bestmove):
+                self._bestmove = move
+
         return best_value
 
     def run(self):
