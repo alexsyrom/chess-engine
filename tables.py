@@ -65,7 +65,7 @@ king = tuple(reversed(king))
 zero_piece = tuple(0 for i in range(64))
 
 white = (zero_piece, pawn, knight, bishop, rook, queen, king)
-black = tuple(tuple(-value for value in reversed(piece)) for piece in white)
+black = tuple(tuple(value for value in reversed(piece)) for piece in white)
 opening = (black, white)
 
 king_ending = (-50,-40,-30,-20,-20,-30,-40,-50,
@@ -79,12 +79,17 @@ king_ending = (-50,-40,-30,-20,-20,-30,-40,-50,
 king_ending = tuple(reversed(king_ending))
 
 white_ending = (zero_piece, pawn, knight, bishop, rook, queen, king_ending)
-black_ending = tuple(tuple(-value for value in reversed(piece))
+black_ending = tuple(tuple(value for value in reversed(piece))
                      for piece in white_ending)
 ending = (black_ending, white_ending)
 
 piece_square = (opening, ending)
 
-piece_opening = (0, 100, 320, 330, 500, 900, 20000)
-piece_ending = (0, 100, 320, 330, 500, 900, 20000)
-piece = (piece_opening, piece_ending)
+piece = (0, 100, 320, 330, 500, 900, 20000)
+
+PIECE_SUM = 2 * (+ 8 * piece[1]
+                 + 2 * piece[2] 
+                 + 2 * piece[3] 
+                 + 2 * piece[4] 
+                 + 1 * piece[5] 
+                 + 1 * piece[6]) 

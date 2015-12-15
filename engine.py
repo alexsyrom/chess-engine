@@ -17,7 +17,7 @@ class Analyzer(threading.Thread):
     def set_default_values(self):
         self.infinite = False
         self.possible_first_moves = set()
-        self.depth = 3
+        self.depth = 4
         self.number_of_nodes = 100
 
     def __init__(self, call_if_ready, call_to_inform):
@@ -56,36 +56,65 @@ class Analyzer(threading.Thread):
             return wrap
 
     def get_number_of_pieces(self):
-        number = 0
-        for square in chess.SQUARES:
-            if self.board.piece_at(square):
-                number += 1
+        number = sum(1 for square in chess.SQUARES
+                     if self.board.piece_at(square))
         return number
 
-    @Communicant()
-    def evaluate_material(self, phase, color):
+    def evaluate_material_position(self, phase, color, pieces):
+        value = 0
+        for piece in pieces:
+            squares = self.board.pieces(piece, color)
+            for square in squares:
+                value += tables.piece_square[phase][color][piece][square]
+        return value
+
+    def evaluate_material(self, color):
         value = 0
         for piece in chess.PIECE_TYPES:
             squares = self.board.pieces(piece, color)
-            for square in squares:
-                value += (tables.piece[phase][piece] +
-                          tables.piece_square[phase][color][piece][square])
+            value += len(squares) * tables.piece[piece]
         return value
 
-    @Communicant()
     def evaluate(self):
         if self.board.is_checkmate():
             return self.ALPHA
+        if self.board.is_stalemate():
+            return 0
+
+        colors = list(map(int, chess.COLORS))
+
         values = [0 for i in tables.PHASES]
+        phase = tables.OPENING
+        pieces = list(range(1, 6))  # pieces without king
+        for color in colors:
+            values[phase] += (self.evaluate_material_position
+                              (phase, color, pieces)
+                              *
+                              (-1 + 2 * color))
+        values[tables.ENDING] = values[tables.OPENING]
         for phase in tables.PHASES:
-            for color in map(int, chess.COLORS):
-                values[phase] += (self.evaluate_material(phase, color) *
+            for color in colors:
+                values[phase] += (self.evaluate_material_position
+                                  (phase, color, (chess.KING,))
+                                  *
                                   (-1 + 2 * color))
-        number_of_pieces = self.get_number_of_pieces()
-        value = (values[0] * number_of_pieces +
-                 values[1] * (32 - number_of_pieces)) // 32
+
+        material = [0 for i in colors]
+        for color in colors:
+            material[color] = self.evaluate_material(color)
+        material_sum = sum(material)
+
+        for color in colors:
+            for phase in tables.PHASES:
+                values[phase] += material[color] * (-1 + 2 * color)
+
+        value = ((values[tables.OPENING] * material_sum +
+                  values[tables.ENDING] * (tables.PIECE_SUM - material_sum))
+                 // tables.PIECE_SUM)
+
         if self.board.turn == chess.BLACK:
             value *= -1
+
         return value
 
     @Communicant()
