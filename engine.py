@@ -228,10 +228,10 @@ class Analyzer(threading.Thread):
                 self._call_to_inform('pv score cp {}'.format(value))
             else:
                 self._call_to_inform('string opening')
-            self.is_working.clear()
             if not self.infinite:
                 self._call_if_ready()
             self.set_default_values()
+            self.is_working.clear()
 
 
 class EngineShell(cmd.Cmd):
@@ -340,11 +340,12 @@ class EngineShell(cmd.Cmd):
                 getattr(self, 'go_' + arg[index])(arg[index + 1:])
         try:
             index = arg.index('movetime')
-            time = float(arg[index + 1])
+            time = float(arg[index + 1]) / 1000
         except:
             pass
         else:
             self.stop_timer = threading.Timer(time, self.do_stop)
+            self.stop_timer.start()
         self.analyzer.is_working.set()
 
     def do_stop(self, arg=None):
