@@ -197,17 +197,20 @@ class Analyzer(threading.Thread):
             if self.termination.is_set():
                 sys.exit()
             self._bestmove = chess.Move.null()
+
             try:
-                for entry in self.opening_book.find_all(self.board):
-                    move = entry.move()
-                    if not self.possible_first_moves:
-                        self._bestmove = move
-                        break
-                    elif move in self.possible_first_moves:
-                        self._bestmove = move
-                        break
+                if not self.possible_first_moves:
+                    entry = self.opening_book.find(self.board)
+                    self._bestmove = entry.move()
+                else:
+                    for entry in self.opening_book.find_all(self.board):
+                        move = entry.move()
+                        if move in self.possible_first_moves:
+                            self._bestmove = move
+                            break
             except:
                 pass
+
             if not bool(self._bestmove):
                 middle = self.evaluate()
                 alpha = self.ALPHA
@@ -236,7 +239,12 @@ class EngineShell(cmd.Cmd):
     prompt = ''
     file = None
 
-    opening_book = "opening/gm2001.bin"
+    opening_book_list = ['gm2001',
+                         'komodo',
+                         'Human']
+    opening_book = 'Human'
+    opening_dir = 'opening'
+    opening_book_extension = '.bin'
 
     go_parameter_list = ['infinite', 'searchmoves', 'depth', 'nodes']
 
@@ -245,16 +253,23 @@ class EngineShell(cmd.Cmd):
         self.postinitialized = False
 
     def postinit(self):
+        opening_book = self.opening_book + self.opening_book_extension
+        opening_book = os.path.join(self.opening_dir, opening_book)
         self.analyzer = Analyzer(
             self.output_bestmove,
             self.output_info,
-            os.path.join(__location__, self.opening_book))
+            os.path.join(__location__, opening_book))
         self.analyzer.start()
         self.postinitialized = True
 
     def do_uci(self, arg):
         print('id name', ENGINE_NAME)
         print('id author', AUTHOR_NAME)
+        print('option name OpeningBook type combo', end=' ')
+        print('default', self.opening_book, end=' ')
+        for book in self.opening_book_list:
+            print('var', book, end=' ')
+        print()
         print('uciok')
 
     def do_debug(self, arg):
@@ -277,7 +292,17 @@ class EngineShell(cmd.Cmd):
         print('readyok')
 
     def do_setoption(self, arg):
-        pass
+        arg = arg.split()
+        try:
+            if arg[0] != 'name':
+                return
+            arg.pop(0)
+            if (arg[0] == 'OpeningBook' and
+                    arg[1] == 'value' and
+                    arg[2] in self.opening_book_list):
+                self.opening_book = arg[2]
+        except:
+            pass
 
     def do_ucinewgame(self, arg):
         pass
